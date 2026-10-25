@@ -1,0 +1,11 @@
+fastapi
+uvicorn[standard]
+pydantic
+pydantic-settings
+google-genai
+google-adk
+httpx
+slowapi
+pytest
+pytest-asyncio
+python-dotenv

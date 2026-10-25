@@ -1,0 +1,168 @@
+You are building a FastAPI service called "meeting-chat" inside the current
+directory (~/Documents/GitHub/meeting-chat).
+
+STRICT SCOPE:
+- Work ONLY inside the current directory.
+- Do NOT touch meeting-processor/ (that repo is live and working on port 8000).
+- Do NOT run git commands.
+- Do NOT deploy.
+- Do NOT write A2A code (that is a later session).
+- Do NOT guess the Google ADK API. The installed version is google-adk 2.13.0
+  and google-genai 2.33.0. Inspect the installed packages with `python -c
+  "help(...)"` if any API detail is unclear. Do NOT invent method names.
+
+GOAL:
+A conversational Q&A service over meeting history, using Google ADK (2.x) for
+the agent and multi-turn session memory. It gets its meeting data by calling
+the existing meeting-processor REST API on http://localhost:8000. It owns no
+database of its own.
+
+Google ADK 2.13.0 API — CONFIRMED AND REQUIRED:
+- Imports:
+    from google.adk import Agent, Runner
+    from google.adk.sessions import InMemorySessionService
+    from google.genai import types as gtypes
+- Agent:
+    agent = Agent(name="...", model="gemini-flash-latest",
+                  instruction="...", tools=[...])
+- Runner:
+    runner = Runner(node=agent, app_name="meeting-chat",
+                    session_service=InMemorySessionService(),
+                    auto_create_session=True)
+- Invocation:
+    async for event in runner.run_async(
+        user_id="<id>", session_id="<id>",
+        new_message=gtypes.Content(role="user",
+                                   parts=[gtypes.Part(text="...")])):
+        # inspect event.message.parts[*].text for output
+- Tools: define plain Python functions with docstrings. ADK generates
+  the function schema from the signature + docstring.
+
+FILE STRUCTURE (create exactly these):
+app/__init__.py
+app/config.py            (pydantic-settings: GOOGLE_API_KEY,
+                          MEETING_PROCESSOR_URL, ALLOWED_ORIGIN)
+app/main.py              (FastAPI, CORS, /health, port 8001)
+app/agents/__init__.py
+app/agents/tools.py      (three async tools calling meeting-processor)
+app/agents/chat_agent.py (ADK agent + chat() wrapper)
+app/routes/__init__.py
+app/routes/chat.py       (POST /chat, DELETE /chat/{session_id})
+tests/__init__.py
+tests/test_health.py
+tests/test_chat.py       (mock the ADK chat, test endpoint shape + memory)
+requirements.txt
+.env.example
+Dockerfile
+README.md
+.gitignore
+
+TOOLS in app/agents/tools.py — three plain async functions:
+    async def list_meetings() -> list[dict]
+        GET {MEETING_PROCESSOR_URL}/meetings
+
+    async def get_meeting(meeting_id: str) -> dict
+        GET {MEETING_PROCESSOR_URL}/meetings/{meeting_id}
+
+    async def search_meetings(query: str) -> list[dict]
+        Fetch all meetings, then for each fetch the detail and check if
+        query.lower() appears in title or json.dumps(analysis). Return matches.
+        Document in a docstring that this is a client-side placeholder until
+        meeting-processor gets a real search endpoint.
+
+Each tool must have a clear Google-style docstring — ADK uses it to build
+the function schema for the LLM.
+
+AGENT in app/agents/chat_agent.py:
+    agent = Agent(
+        name="meeting_chat",
+        model="gemini-flash-latest",
+        instruction=(
+            "You answer questions about a user's past meetings. "
+            "Use the provided tools to look up meeting data. If the user "
+            "refers to a meeting by nickname or partial title, use "
+            "search_meetings. When a follow-up question uses a pronoun "
+            "like 'they' or 'it', resolve it against the prior turn."
+        ),
+        tools=[list_meetings, get_meeting, search_meetings],
+    )
+
+    async def chat(session_id: str, user_id: str, message: str) -> str:
+        # Build content, run the agent, collect all text parts, return.
+        # Use InMemorySessionService at module level so sessions persist across
+        # requests within a single process.
+
+ROUTES in app/routes/chat.py:
+    POST /chat
+      Body: {"session_id": str, "message": str}
+      Returns: {"session_id": str, "response": str}
+      Rate limit: 20/minute via slowapi.
+
+    DELETE /chat/{session_id}
+      Clears the session (or documents that in-memory sessions are cleared on
+      process restart only — either is acceptable for the skeleton, but be
+      explicit in a comment).
+
+MAIN:
+    FastAPI app, CORS from settings.allowed_origin, /health, include chat.
+    Limiter defined in routes/chat.py, reused in main.py (same pattern as
+    meeting-processor to avoid circular imports).
+    Runs on port 8001 (meeting-processor owns 8000).
+
+TESTS:
+    tests/test_health.py — GET /health returns 200
+    tests/test_chat.py — mock app.agents.chat_agent.chat, POST a message,
+      assert response shape. Second test: POST two messages with the same
+      session_id, assert the mock was called twice with the same session_id.
+
+requirements.txt:
+    fastapi
+    uvicorn[standard]
+    pydantic
+    pydantic-settings
+    google-genai
+    google-adk
+    httpx
+    slowapi
+    pytest
+    pytest-asyncio
+    python-dotenv
+
+.env.example:
+    GOOGLE_API_KEY=...
+    MEETING_PROCESSOR_URL=http://localhost:8000
+    ALLOWED_ORIGIN=http://localhost:8001
+
+Dockerfile, README.md, .gitignore: same pattern as meeting-processor.
+README must include:
+- One-line description
+- Setup + run instructions (port 8001)
+- API endpoints table
+- Design decision: no database, calls meeting-processor over REST
+- What's NOT here: A2A, streaming, deploy
+
+VERIFICATION — run these and paste the output:
+1. python -m py_compile $(find app tests -name "*.py")
+   Expected: no output
+
+2. python -c "from app.main import app; print([r.path for r in app.routes])"
+   Expected: /health, /chat, /chat/{session_id}
+
+3. python -m pytest tests/ -v
+   Expected: 3-4 tests passing
+
+4. If meeting-processor is running on port 8000:
+   Start meeting-chat: uvicorn app.main:app --reload --port 8001
+   Then (in another terminal):
+   curl -X POST http://localhost:8001/chat \
+     -H "Content-Type: application/json" \
+     -d '{"session_id":"test-1","message":"What did we decide about the budget?"}'
+   Expected: a natural-language answer mentioning the marketing spend decision.
+
+   Then the multi-turn test:
+   curl -X POST http://localhost:8001/chat \
+     -H "Content-Type: application/json" \
+     -d '{"session_id":"test-1","message":"Who agreed to review the runway?"}'
+   Expected: an answer naming Carol — this proves multi-turn memory.
+
+Then STOP. Do not commit.
