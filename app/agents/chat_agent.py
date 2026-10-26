@@ -6,7 +6,12 @@ from google.adk.models.lite_llm import LiteLlm
 from google.adk.sessions import InMemorySessionService
 from google.genai import types as gtypes
 
-from app.agents.tools import get_meeting, list_meetings, search_meetings
+from app.agents.tools import (
+    analyse_meeting_a2a,
+    get_meeting,
+    list_meetings,
+    search_meetings,
+)
 
 APP_NAME = "meeting-chat"
 
@@ -18,9 +23,12 @@ agent = Agent(
         "Use the provided tools to look up meeting data. If the user "
         "refers to a meeting by nickname or partial title, use "
         "search_meetings. When a follow-up question uses a pronoun "
-        "like 'they' or 'it', resolve it against the prior turn."
+        "like 'they' or 'it', resolve it against the prior turn. "
+        "If the user pastes a new transcript to analyse, prefer "
+        "analyse_meeting_a2a (the A2A agent) over the REST lookup tools, "
+        "which only cover meetings already stored."
     ),
-    tools=[list_meetings, get_meeting, search_meetings],
+    tools=[list_meetings, get_meeting, search_meetings, analyse_meeting_a2a],
 )
 
 # Module-level so sessions (conversation history) persist across requests

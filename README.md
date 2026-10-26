@@ -46,10 +46,11 @@ Reuse the same `session_id` for follow-up questions. The agent sees the earlier 
 - **In-memory sessions.** Conversation history lives in ADK's `InMemorySessionService`, created once per process. History is lost on restart and is not shared across workers, so run a single worker for now.
 - **Semantic search.** `search_meetings` embeds the query with OpenAI `text-embedding-3-small` and runs a pgvector similarity search via `langchain-postgres`. "Ad spend" therefore finds a meeting about "marketing spend". Each meeting becomes one document (title, summary, action items, decisions and risks), stored under a row id derived from the meeting id. Re-indexing upserts in place instead of duplicating.
 - **Indexing is pull-based.** meeting-chat doesn't hear about new meetings. They're picked up at the next startup or `POST /index`. The "already indexed" set is in-process, so each fresh process re-embeds every meeting once, which is cheap at this scale. Edits to a meeting that this process has already indexed aren't picked up until restart.
+- **A2A for analysing new transcripts.** `analyse_meeting_a2a` calls meeting-processor's A2A server (`MEETING_PROCESSOR_A2A_URL`, default `http://localhost:8000`) through `a2a_client/`. The prompt tells the agent to prefer it over the REST tools when the user pastes a transcript. The REST tools are unchanged and still handle stored meetings. A2A results are not saved, so they don't appear in `list_meetings`.
+- **`a2a_client` is duplicated.** a2a_client is currently duplicated across meeting-chat and meeting-followup; extract to a shared package as a follow-up.
 - **No auth yet.** Every caller uses one ADK user (`anonymous`), so anyone who knows a `session_id` can read or delete that conversation.
 
 ## Not here
 
-- A2A (agent-to-agent) interface
 - Streaming responses
 - Deployment

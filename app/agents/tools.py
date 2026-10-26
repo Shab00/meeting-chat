@@ -2,6 +2,7 @@ from typing import Any
 
 import httpx
 
+from a2a_client import analyse_via_a2a
 from app.config import settings
 
 TIMEOUT = httpx.Timeout(10.0)
@@ -89,3 +90,24 @@ async def search_meetings(query: str, k: int = 3) -> list[dict]:
         }
         for r in results
     ]
+
+
+async def analyse_meeting_a2a(transcript: str) -> dict:
+    """Analyse a NEW meeting transcript via meeting-processor's A2A agent.
+
+    Use this when the user pastes a raw transcript and wants it analysed.
+    The result is not saved as a past meeting, so it will not show up in
+    list_meetings or search_meetings afterwards.
+
+    Args:
+        transcript: The full meeting transcript text (100-50,000 chars).
+
+    Returns:
+        The analysis with keys "summary", "action_items", "decisions" and
+        "risks". On failure, returns {"error": "..."} instead.
+    """
+    print(f"[tool] analyse_meeting_a2a({len(transcript)} chars)")
+    try:
+        return await analyse_via_a2a(transcript)
+    except RuntimeError as e:
+        return {"error": str(e)}

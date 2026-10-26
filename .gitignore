@@ -5,3 +5,7 @@ __pycache__/
 trajectories/
 .pytest_cache/
 *.egg-info/
+
+# build-session artefacts
+task_*.txt
+claude_*_run.json

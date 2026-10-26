@@ -13,3 +13,4 @@ langchain-openai
 langchain-postgres
 psycopg[binary]
 langchain-core
+a2a-sdk==1.2.3
