@@ -1,5 +1,3 @@
-import asyncio
-import json
 from typing import Any
 
 import httpx
@@ -49,33 +47,45 @@ async def get_meeting(meeting_id: str) -> dict:
         raise
 
 
-async def search_meetings(query: str) -> list[dict]:
-    """Find meetings whose title or analysis mentions the query text.
+async def search_meetings(query: str, k: int = 3) -> list[dict]:
+    """Search past meetings by meaning using semantic similarity.
 
-    Use this when the user refers to a meeting by nickname, partial title or
-    topic (e.g. "the budget meeting").
+    This is SEMANTIC search, not keyword search: it finds meetings whose
+    content means the same thing as the query even when no words overlap
+    (e.g. "ad spend" matches a meeting about "marketing spend").
 
-    This is a client-side placeholder until meeting-processor gets a real
-    search endpoint: it fetches every meeting's detail and does a
-    case-insensitive substring match on the title and the JSON-encoded
-    analysis. Cost grows linearly with the number of meetings.
+    Use this when the user refers to a meeting by topic, decision, person's
+    responsibility or concept rather than an exact title or date. Pass the
+    user's question (or its key idea) as the query; do not reduce it to a
+    single keyword. Call get_meeting with a result's meeting_id for full
+    details.
+
+    Examples of good queries:
+        "what did we decide about ad spend"
+        "who is responsible for the hiring plan"
+        "any risks around revenue"
 
     Args:
-        query: Text to look for, e.g. "budget" or "runway".
+        query: A natural-language description of what to find.
+        k: How many meetings to return (default 3).
 
     Returns:
-        Full meeting records (same shape as get_meeting) that match the
-        query. Empty list if nothing matches.
+        Up to k meetings, most similar first, each with "meeting_id",
+        "title" and "snippet" (the start of the indexed text).
     """
-    needle = query.lower()
-    meetings = await list_meetings()
-    details = await asyncio.gather(*(get_meeting(str(m["id"])) for m in meetings))
+    from app.rag.store import get_store
+
+    # asimilarity_search exists in langchain-postgres 0.0.19, so no sync
+    # fallback is needed; the async call keeps the event loop free.
+    results = await get_store().asimilarity_search(query, k=k)
+    # ADK doesn't log tool calls by default; this makes them visible in the
+    # uvicorn console.
+    print(f"[tool] search_meetings({query!r}, k={k}) -> {len(results)} results")
     return [
-        d
-        for d in details
-        if "error" not in d
-        and (
-            needle in (d.get("title") or "").lower()
-            or needle in json.dumps(d.get("analysis")).lower()
-        )
+        {
+            "meeting_id": r.metadata.get("meeting_id"),
+            "title": r.metadata.get("title"),
+            "snippet": r.page_content[:400],
+        }
+        for r in results
     ]

@@ -9,3 +9,7 @@ slowapi
 pytest
 pytest-asyncio
 python-dotenv
+langchain-openai
+langchain-postgres
+psycopg[binary]
+langchain-core
