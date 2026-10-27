@@ -15,7 +15,7 @@ google-adk>=2.13,<3
 # CacheableResult' at module load. That name only exists in mcp 2.x,
 # which litellm 1.105 does not use. Cap below 1.106 — tested pairing
 # is litellm 1.105.1 + mcp 1.30.0.
-litellm>=1.65.1,<1.106
+litellm>=1.65.1,<1.105
 
 # --- http client (a2a-sdk floor) ---
 httpx>=0.28.1,<0.29

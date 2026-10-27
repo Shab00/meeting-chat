@@ -1,4 +1,6 @@
 import asyncio
+import litellm
+
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
