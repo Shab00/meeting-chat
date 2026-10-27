@@ -1,16 +1,35 @@
-fastapi
-uvicorn[standard]
-pydantic
-pydantic-settings
-google-genai
-google-adk
-httpx
-slowapi
-pytest
-pytest-asyncio
-python-dotenv
-langchain-openai
-langchain-postgres
-psycopg[binary]
-langchain-core
-a2a-sdk==1.2.3
+# --- web framework ---
+# google-adk 2.x requires fastapi>=0.133, starlette>=1.3.1, uvicorn>=0.34.
+# a2a-sdk only requires fastapi>=0.115.2, so it accepts these newer versions.
+fastapi>=0.133,<1
+starlette>=1.3.1,<2
+uvicorn[standard]>=0.34,<1
+
+# --- models / agents ---
+pydantic>=2.11,<3
+pydantic-settings>=2.6,<3
+google-genai>=1.0
+google-adk>=2.13,<3
+# arrives via google-adk; pinned explicitly so it can't resolve below
+# the version that requires httpx>=0.28.1
+litellm>=1.65.1
+
+# --- http client (a2a-sdk floor) ---
+httpx>=0.28.1,<0.29
+
+# --- A2A ---
+a2a-sdk[http-server]==1.2.3
+
+# --- RAG / vector store ---
+langchain-openai>=0.2
+langchain-postgres>=0.0.17
+langchain-core>=0.3,<2
+psycopg[binary]>=3.2,<4
+
+# --- app deps ---
+slowapi>=0.1.9
+python-dotenv>=1.0.1
+
+# --- tests ---
+pytest>=8.3
+pytest-asyncio>=0.24
