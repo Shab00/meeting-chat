@@ -5,7 +5,7 @@ import httpx
 from a2a_client import analyse_via_a2a
 from app.config import settings
 
-TIMEOUT = httpx.Timeout(10.0)
+TIMEOUT = httpx.Timeout(180.0)
 
 
 async def _get(path: str) -> Any:

@@ -1,3 +1,4 @@
+import asyncio
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -11,20 +12,36 @@ from app.rag.store import init_table
 from app.routes import chat, index
 
 
+SYNC_ATTEMPTS = 6
+SYNC_RETRY_DELAY_S = 30
+
+
+async def _startup_sync() -> None:
+    # Retries because meeting-processor may be cold-starting (~60s on Render's
+    # free tier); a failed sync leaves the vector store empty.
+    for attempt in range(1, SYNC_ATTEMPTS + 1):
+        try:
+            await init_table()
+            result = await sync_all()
+            print(
+                f"[startup] indexed {result['indexed']} meetings, "
+                f"skipped {result['skipped']}, failed {result['failed']}"
+            )
+            print("indexer: sync complete")
+            return
+        except Exception as e:
+            print(f"indexer: attempt {attempt}/{SYNC_ATTEMPTS} failed: {e!r}")
+            if attempt < SYNC_ATTEMPTS:
+                await asyncio.sleep(SYNC_RETRY_DELAY_S)
+    # Out of retries; call POST /index once both services are up.
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    try:
-        await init_table()
-        result = await sync_all()
-        print(
-            f"[startup] indexed {result['indexed']} meetings, "
-            f"skipped {result['skipped']}, failed {result['failed']}"
-        )
-    except Exception as e:
-        # Don't crash if meeting-processor or the vector DB is down; call
-        # POST /index once both are up.
-        print(f"[startup] index sync failed: {e!r}")
+    # Run in the background so the app (and /health) is up immediately.
+    sync_task = asyncio.create_task(_startup_sync())
     yield
+    sync_task.cancel()
 
 
 # Single Limiter instance shared with the @limiter.limit decorators.

@@ -16,7 +16,7 @@ from a2a.types import Role, SendMessageRequest, TaskState
 
 logger = logging.getLogger(__name__)
 
-TIMEOUT_SECONDS = 60.0
+A2A_TIMEOUT_S = 180.0
 
 
 def _base_url() -> str:
@@ -25,7 +25,7 @@ def _base_url() -> str:
 
 
 async def _analyse(transcript: str, base_url: str) -> dict:
-    async with httpx.AsyncClient(timeout=TIMEOUT_SECONDS) as http:
+    async with httpx.AsyncClient(timeout=A2A_TIMEOUT_S) as http:
         card = await A2ACardResolver(http, base_url).get_agent_card()
         # Non-streaming: the server replies once with the finished Task, so
         # there are no stream events to stitch together.
@@ -67,11 +67,12 @@ async def analyse_via_a2a(transcript: str) -> dict:
     """
     base_url = _base_url()
     logger.info("A2A analyse_meeting -> %s (%d chars)", base_url, len(transcript))
+    logger.info("a2a: -> %s (timeout %.0fs)", base_url, A2A_TIMEOUT_S)
     try:
-        return await asyncio.wait_for(_analyse(transcript, base_url), TIMEOUT_SECONDS)
+        return await asyncio.wait_for(_analyse(transcript, base_url), A2A_TIMEOUT_S)
     except RuntimeError:
         raise
     except asyncio.TimeoutError as e:
-        raise RuntimeError(f"A2A call to {base_url} timed out after {TIMEOUT_SECONDS}s") from e
+        raise RuntimeError(f"A2A call to {base_url} timed out after {A2A_TIMEOUT_S}s") from e
     except Exception as e:
         raise RuntimeError(f"A2A call to {base_url} failed: {e!r}") from e
