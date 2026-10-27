@@ -10,9 +10,12 @@ pydantic>=2.11,<3
 pydantic-settings>=2.6,<3
 google-genai>=1.0
 google-adk>=2.13,<3
-# arrives via google-adk; pinned explicitly so it can't resolve below
-# the version that requires httpx>=0.28.1
-litellm>=1.65.1
+# 1.106+ lazily imports litellm.proxy._experimental.mcp_server.catalog
+# inside the completion path, which does 'from mcp.types import
+# CacheableResult' at module load. That name only exists in mcp 2.x,
+# which litellm 1.105 does not use. Cap below 1.106 — tested pairing
+# is litellm 1.105.1 + mcp 1.30.0.
+litellm>=1.65.1,<1.106
 
 # --- http client (a2a-sdk floor) ---
 httpx>=0.28.1,<0.29
