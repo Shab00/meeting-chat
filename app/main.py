@@ -3,9 +3,7 @@ import litellm
 
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Request
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import Response
+from fastapi import FastAPI, Request, Response
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 
@@ -18,10 +16,10 @@ from app.routes import chat, index
 SYNC_ATTEMPTS = 6
 SYNC_RETRY_DELAY_S = 30
 
-ALLOWED_ORIGINS = {
+ALLOWED_ORIGINS = [
     "https://shab00.github.io",
     "http://localhost:4000",
-}
+]
 
 
 async def _startup_sync() -> None:
@@ -59,67 +57,52 @@ app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 
-# ---- CORS FIX ----
-# This middleware runs at the outermost layer and MUST be added before
-# CORSMiddleware so it executes last on the response path, overwriting
-# any header mutations that happen below it.
+# ---------------------------------------------------------------------------
+# CORS handling
+# ---------------------------------------------------------------------------
+# CORSMiddleware is deliberately NOT used here. On this deployment it was
+# returning 400 "Disallowed CORS origin" on preflight and serving a default
+# allow_methods list instead of the configured one — the origin check was
+# falling back to '*' which Starlette rejects when credentials are involved.
 #
-# Why this is needed here and not in meeting-processor:
-#   /chat is decorated with @limiter.limit(...) from slowapi. slowapi
-#   wraps the route and its rate-limit handler strips some response
-#   headers, including Access-Control-Allow-Origin. The result is a
-#   200 response with `access-control-allow-credentials: true` but no
-#   allow-origin header, which the browser rejects as a CORS failure.
-#
-# The middleware below handles OPTIONS directly (short-circuiting the
-# route entirely) and sets the required headers on all responses from
-# known origins. Vary: Origin prevents Cloudflare (which sits in front
-# of *.onrender.com) from caching a preflight response for the wrong
-# origin.
-@app.middleware("http")
-async def _force_cors(request: Request, call_next):
+# CORS is handled in two explicit pieces instead:
+#   1. @app.options("/chat") — explicit preflight response, 204 for known
+#      origins, 403 for others. Runs before slowapi's @limiter.limit and
+#      before any other middleware, so it cannot be shadowed.
+#   2. @app.middleware("http") — attaches Access-Control-Allow-Origin to
+#      every non-preflight response from known origins. Runs last on the
+#      response path so nothing below it can strip the header.
+# ---------------------------------------------------------------------------
+
+
+@app.options("/chat")
+async def chat_options(request: Request) -> Response:
     origin = request.headers.get("origin", "")
+    if origin not in ALLOWED_ORIGINS:
+        return Response(status_code=403, content="Origin not allowed")
+    return Response(
+        status_code=204,
+        headers={
+            "Access-Control-Allow-Origin": origin,
+            "Access-Control-Allow-Methods": "POST, OPTIONS",
+            "Access-Control-Allow-Headers": "Content-Type",
+            "Access-Control-Allow-Credentials": "true",
+            "Access-Control-Max-Age": "600",
+            "Vary": "Origin",
+        },
+    )
 
-    # Short-circuit the preflight — never let slowapi or CORSMiddleware
-    # see an OPTIONS request on /chat.
-    if request.method == "OPTIONS" and origin in ALLOWED_ORIGINS:
-        return Response(
-            status_code=204,
-            headers={
-                "Access-Control-Allow-Origin": origin,
-                "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-                "Access-Control-Allow-Headers": "Content-Type",
-                "Access-Control-Max-Age": "600",
-                "Vary": "Origin",
-            },
-        )
 
+@app.middleware("http")
+async def _attach_cors(request: Request, call_next):
     response = await call_next(request)
-
-    # Overwrite on the real response. Runs after every route handler,
-    # after slowapi, after CORSMiddleware — last writer wins.
+    origin = request.headers.get("origin", "")
     if origin in ALLOWED_ORIGINS:
         response.headers["Access-Control-Allow-Origin"] = origin
         response.headers["Access-Control-Allow-Credentials"] = "true"
-        response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
-        response.headers["Access-Control-Allow-Headers"] = "Content-Type"
         response.headers["Vary"] = "Origin"
-
     return response
-# ---- END CORS FIX ----
 
-
-# Standard CORSMiddleware. Kept for non-/chat routes (index, health) and
-# as a fallback if the middleware above is ever removed. Adding it AFTER
-# the custom middleware means it runs first on the response path, so the
-# custom middleware above always gets the last word.
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=list(ALLOWED_ORIGINS),
-    allow_methods=["POST", "GET", "OPTIONS"],
-    allow_headers=["Content-Type"],
-    max_age=600,
-)
 
 app.include_router(chat.router)
 app.include_router(index.router)
